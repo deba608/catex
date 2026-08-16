@@ -402,64 +402,8 @@ class CatalogueApp(ctk.CTk):
                       font=ctk.CTkFont(size=12, weight="bold"),
                       command=lambda: self._show_state("drop")).pack(fill="x", pady=(10, 0))
 
-
-
-        # header cards row – use pack for CTkScrollableFrame compatibility
-        cards_row = ctk.CTkFrame(self.results_frame, fg_color="transparent")
-        cards_row.pack(fill="x", pady=(0, 8))
-        StatCard(cards_row, s["total_products"], "Products found", "ink").pack(side="left", padx=(0, 6))
-        StatCard(cards_row, s["total_variants"], "Size variants", "ink").pack(side="left", padx=(6, 6))
-        StatCard(cards_row, s["products_with_photo"], "Photos extracted", "good").pack(side="left", padx=(6, 0))
-        warn_tone = "warn" if s["products_missing_photo"] else "ink"
-        StatCard(cards_row, s["products_missing_photo"], "Missing photo", warn_tone).pack(side="left", padx=(6, 0))
-
-        # missing-photo flag
-        if s["products_missing_photo"] > 0:
-            flag = ctk.CTkFrame(self.results_frame, fg_color=COLORS["warn_bg"], border_width=1,
-                                border_color=COLORS["warn_border"], corner_radius=10)
-            flag.pack(fill="x", pady=(0, 12))
-            fi = ctk.CTkFrame(flag, fg_color="transparent")
-            fi.pack(fill="x", padx=12, pady=8)
-            skus = s["missing_photo_skus"]
-            shown = ", ".join(skus[:20]) + (", …" if len(skus) > 20 else "")
-            ctk.CTkLabel(flag, text=f"{s['products_missing_photo']} products need a photo:", font=ctk.CTkFont(size=11, weight="bold"),
-                         text_color=COLORS["warn"], anchor="w").pack(fill="x", pady=(0, 2))
-            ctk.CTkLabel(flag, text=shown, font=ctk.CTkFont(size=10), text_color=COLORS["warn"], anchor="w", justify="left", wraplength=800).pack(fill="x")
-
-        # generated files list
-        files = [
-            ("products.csv", "products.csv", "Product table with status & photo indicators"),
-            ("variants.csv", "variants.csv", "Size variants in centimetres"),
-            ("products.json", "products.json", "Structured JSON with nested variants"),
-            ("import.sql", "import.sql", "PostgreSQL / Supabase ready SQL seed script"),
-            ("photos.zip", "photos.zip", "All extracted product photos named by SKU"),
-        ]
-
-        ctk.CTkLabel(self.results_frame, text="GENERATED FILES", font=ctk.CTkFont(size=11, weight="bold"),
-                     text_color=COLORS["ink_soft"], anchor="w").pack(fill="x", pady=(10, 4))
-
-        for idx, (name, label, desc) in enumerate(files):
-            card = ctk.CTkFrame(self.results_frame, fg_color=COLORS["surface"], border_width=1,
-                                border_color=COLORS["line"], corner_radius=7)
-            card.pack(fill="x", pady=2)
-            info = ctk.CTkFrame(card, fg_color="transparent")
-            info.pack(side="left", fill="x", expand=True, padx=10, pady=4)
-            ctk.CTkLabel(info, text=label, font=ctk.CTkFont(size=12, weight="bold"), text_color=COLORS["ink"], anchor="w").pack(fill="x")
-            ctk.CTkLabel(info, text=desc, font=ctk.CTkFont(size=9), text_color=COLORS["ink_soft"], anchor="w").pack(fill="x")
-            save_path = os.path.join(self.out_dir, name)
-            ctk.CTkButton(card, text="Save As…", width=90, height=28, fg_color=COLORS["btn"],
-                          hover_color=COLORS["btn_hover"], font=ctk.CTkFont(size=11, weight="bold"),
-                          command=lambda p=save_path: self._save_as(p)).pack(side="right", padx=10)
-
-        # action buttons at the bottom
-        ctk.CTkButton(self.results_frame, text="Open output folder", height=34, fg_color=COLORS["accent"],
-                      hover_color=COLORS["accent_hover"], font=ctk.CTkFont(size=12, weight="bold"),
-                      command=lambda: _open_in_explorer(self.out_dir)).pack(fill="x", pady=(10, 0))
-        ctk.CTkButton(self.results_frame, text="Import another catalogue", height=34, width=180,
-                      fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
-                      font=ctk.CTkFont(size=12, weight="bold"), command=lambda: self._show_state("drop")).pack(fill="x", pady=(6, 0))
-
     # ---------- helpers ----------
+
 
     def _save_as(self, path):
         if not os.path.exists(path):
