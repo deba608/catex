@@ -27,44 +27,27 @@ import zipfile
 from collections import defaultdict
 
 SKU_PATTERN = re.compile(r'\b([A-Z]{1,4}-?\d{1,5})\b')
+DIM_PATTERN_CM = re.compile(r'^([\d.]+)\s*cm\s*[xX]\s*([\d.]+)\s*cm$')
+DIM_PATTERN_IN_XY = re.compile(r'^([\d.]+)\s*[xX]\s*([\d.]+)\s*in$', re.I)
+DIM_PATTERN_IN_SINGLE = re.compile(r'^([\d.]+)\s*in$', re.I)
+DIM_PATTERN_BARE = re.compile(r'^([\d.]+)$')
 
 
 def to_cm_pair(token):
     """Parse a raw dimension token into (width_cm, height_cm)."""
     token = (token or "").strip()
-    # Strip optional prefix like 'Size A:', 'Size 1 -', 'A.', 'B:'
-    token = re.sub(r'^(?:size\s+[a-z\d]+|[a-z])[\s:->=.]+\s*', '', token, flags=re.I).strip()
-
-    # 10cm x 15cm, 10 cm x 15 cm, 10x15cm, 10 x 15 cm
-    m = re.search(r'([\d.]+)\s*(?:cm)?\s*[xX*×]\s*([\d.]+)\s*cm', token, re.I)
+    m = DIM_PATTERN_CM.match(token)
     if m:
         return float(m.group(1)), float(m.group(2))
-
-    # 10 in x 15 in, 10 x 15 in, 10" x 15"
-    m = re.search(r'([\d.]+)\s*(?:in|\"|\'\')?\s*[xX*×]\s*([\d.]+)\s*(?:in|\"|\'\')', token, re.I)
+    m = DIM_PATTERN_IN_XY.match(token)
     if m:
         return round(float(m.group(1)) * 2.54, 2), round(float(m.group(2)) * 2.54, 2)
-
-    # 10 x 15 (bare dimension pair)
-    m = re.search(r'([\d.]+)\s*[xX*×]\s*([\d.]+)', token, re.I)
-    if m:
-        return round(float(m.group(1)) * 2.54, 2), round(float(m.group(2)) * 2.54, 2)
-
-    # 10 cm (single dimension in cm)
-    m = re.search(r'([\d.]+)\s*cm', token, re.I)
-    if m:
-        return None, float(m.group(1))
-
-    # 10 in or 10" (single dimension in in)
-    m = re.search(r'([\d.]+)\s*(?:in|\"|\'\')', token, re.I)
+    m = DIM_PATTERN_IN_SINGLE.match(token)
     if m:
         return None, round(float(m.group(1)) * 2.54, 2)
-
-    # bare number
-    m = re.match(r'^([\d.]+)$', token)
+    m = DIM_PATTERN_BARE.match(token)
     if m:
         return None, round(float(m.group(1)) * 2.54, 2)
-
     return None, None
 
 
@@ -90,8 +73,8 @@ def extract_page_blocks(page):
             current_dims = []
         else:
             # collect anything that looks like a dimension token
-            if current_sku and re.search(r'\d', line) and ('cm' in line.lower() or 'in' in line.lower() or '"' in line or re.search(r'\d+\s*[xX*×]\s*\d+', line) or re.fullmatch(r'[\d.]+', line)):
-                if line.lower() not in ('size', 'total size', 'a', 'b', 'c', 'd', 'e'):
+            if current_sku and re.search(r'\d', line) and ('cm' in line.lower() or 'in' in line.lower() or re.fullmatch(r'[\d.]+', line)):
+                if line.lower() not in ('size', 'total size', 'a', 'b', 'c'):
                     current_dims.append(line)
     if current_sku:
         blocks.append((current_sku, current_dims))
@@ -144,6 +127,7 @@ def process_catalogue(pdf_path, output_dir, sku_prefix_hint=None, progress_cb=No
 
         for i, (sku, dim_tokens) in enumerate(blocks):
             if sku_prefix_hint and not sku.startswith(sku_prefix_hint):
+                # still record it, just don't skip - prefix hint is informational only
                 pass
 
             if sku not in products:
@@ -171,6 +155,7 @@ def process_catalogue(pdf_path, output_dir, sku_prefix_hint=None, progress_cb=No
                 products[sku]["status"] = "active"
 
             # extract matching photo by position if available
+            # (use a set for O(1) lookup instead of scanning the list each iteration)
             extracted_skus = {p[0] for p in photo_report if p[1] == "extracted"}
             if i < len(images) and sku not in extracted_skus:
                 xref = images[i].get("xref")
@@ -247,8 +232,7 @@ def process_catalogue(pdf_path, output_dir, sku_prefix_hint=None, progress_cb=No
     if ordered_skus:
         sql_lines.append("insert into products (sku, name, status, has_photo) values")
         rows = [f"({esc(products[s]['sku'])}, {esc(products[s]['name'])}, {esc(products[s]['status'])}, {str(products[s]['has_photo']).lower()})" for s in ordered_skus]
-        sql_lines.append(",\n".join(rows))
-        sql_lines.append("on conflict (sku) do update set name = excluded.name, status = excluded.status, has_photo = excluded.has_photo;")
+        sql_lines.append(",\n".join(rows) + ";")
 
         vrows = []
         for s in ordered_skus:
