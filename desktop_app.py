@@ -365,7 +365,7 @@ class CatalogueApp(ctk.CTk):
                       command=lambda: _open_in_explorer(self.out_dir)).pack(fill="x", pady=(10, 0))
         ctk.CTkButton(self.results_frame, text="Import another catalogue", height=34, width=180,
                       fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
-                      font=ctk.CTkFont(size=12, weight="bold"), command=self._show_state("drop")).pack(fill="x", pady=(6, 0))
+                      font=ctk.CTkFont(size=12, weight="bold"), command=lambda: self._show_state("drop")).pack(fill="x", pady=(6, 0))
 
     # ---------- helpers ----------
 
