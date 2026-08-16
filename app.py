@@ -4,6 +4,7 @@ import uuid
 import threading
 import shutil
 import subprocess
+import traceback
 from flask import Flask, request, jsonify, send_from_directory, render_template
 
 from catalogue_extractor import process_catalogue
@@ -52,14 +53,21 @@ def configure_paths(data_dir):
 
 def run_job(job_id, pdf_path, job_output_dir):
     def progress_cb(current, total, message):
-        jobs[job_id]["progress"] = {"current": current, "total": total, "message": message}
+        if job_id in jobs:
+            jobs[job_id]["progress"] = {
+                "current": current,
+                "total": total,
+                "message": message
+            }
 
     try:
         jobs[job_id]["status"] = "processing"
         result = process_catalogue(pdf_path, job_output_dir, progress_cb=progress_cb)
+        jobs[job_id]["summary"] = result.get("summary", {})
+        jobs[job_id]["progress"] = {"current": 1, "total": 1, "message": "Complete"}
         jobs[job_id]["status"] = "done"
-        jobs[job_id]["summary"] = result["summary"]
     except Exception as e:
+        traceback.print_exc()
         jobs[job_id]["status"] = "error"
         jobs[job_id]["error"] = str(e)
 
@@ -74,8 +82,8 @@ def upload():
     if "file" not in request.files:
         return jsonify({"error": "No file provided"}), 400
     file = request.files["file"]
-    if not file.filename.lower().endswith(".pdf"):
-        return jsonify({"error": "Please upload a PDF file"}), 400
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        return jsonify({"error": "Please upload a valid PDF file"}), 400
 
     job_id = str(uuid.uuid4())[:8]
     pdf_path = os.path.join(UPLOAD_DIR, f"{job_id}.pdf")
@@ -84,7 +92,11 @@ def upload():
     job_output_dir = os.path.join(OUTPUT_DIR, job_id)
     os.makedirs(job_output_dir, exist_ok=True)
 
-    jobs[job_id] = {"status": "queued", "progress": {"current": 0, "total": 1, "message": "Starting..."}}
+    jobs[job_id] = {
+        "status": "queued",
+        "progress": {"current": 0, "total": 1, "message": "Starting…"},
+        "summary": None,
+    }
 
     thread = threading.Thread(target=run_job, args=(job_id, pdf_path, job_output_dir), daemon=True)
     thread.start()
@@ -104,8 +116,11 @@ def status(job_id):
 def download(job_id, filename):
     allowed = {"products.csv", "variants.csv", "products.json", "import.sql", "photos.zip", "summary.json"}
     if filename not in allowed:
-        return jsonify({"error": "Not allowed"}), 400
+        return jsonify({"error": "File type not allowed"}), 400
     job_output_dir = os.path.join(OUTPUT_DIR, job_id)
+    file_path = os.path.join(job_output_dir, filename)
+    if not os.path.exists(file_path):
+        return jsonify({"error": f"File {filename} not found"}), 404
     return send_from_directory(job_output_dir, filename, as_attachment=True)
 
 
@@ -117,6 +132,8 @@ def open_folder(job_id):
     try:
         if sys.platform == "win32":
             os.startfile(job_output_dir)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", job_output_dir])
         else:
             subprocess.Popen(["xdg-open", job_output_dir])
         return jsonify({"success": True, "path": job_output_dir})

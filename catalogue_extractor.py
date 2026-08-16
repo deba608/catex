@@ -27,27 +27,44 @@ import zipfile
 from collections import defaultdict
 
 SKU_PATTERN = re.compile(r'\b([A-Z]{1,4}-?\d{1,5})\b')
-DIM_PATTERN_CM = re.compile(r'^([\d.]+)\s*cm\s*[xX]\s*([\d.]+)\s*cm$')
-DIM_PATTERN_IN_XY = re.compile(r'^([\d.]+)\s*[xX]\s*([\d.]+)\s*in$', re.I)
-DIM_PATTERN_IN_SINGLE = re.compile(r'^([\d.]+)\s*in$', re.I)
-DIM_PATTERN_BARE = re.compile(r'^([\d.]+)$')
 
 
 def to_cm_pair(token):
     """Parse a raw dimension token into (width_cm, height_cm)."""
     token = (token or "").strip()
-    m = DIM_PATTERN_CM.match(token)
+    # Strip optional prefix like 'Size A:', 'Size 1 -', 'A.', 'B:'
+    token = re.sub(r'^(?:size\s+[a-z\d]+|[a-z])[\s:->=.]+\s*', '', token, flags=re.I).strip()
+
+    # 10cm x 15cm, 10 cm x 15 cm, 10x15cm, 10 x 15 cm
+    m = re.search(r'([\d.]+)\s*(?:cm)?\s*[xX*×]\s*([\d.]+)\s*cm', token, re.I)
     if m:
         return float(m.group(1)), float(m.group(2))
-    m = DIM_PATTERN_IN_XY.match(token)
+
+    # 10 in x 15 in, 10 x 15 in, 10" x 15"
+    m = re.search(r'([\d.]+)\s*(?:in|\"|\'\')?\s*[xX*×]\s*([\d.]+)\s*(?:in|\"|\'\')', token, re.I)
     if m:
         return round(float(m.group(1)) * 2.54, 2), round(float(m.group(2)) * 2.54, 2)
-    m = DIM_PATTERN_IN_SINGLE.match(token)
+
+    # 10 x 15 (bare dimension pair)
+    m = re.search(r'([\d.]+)\s*[xX*×]\s*([\d.]+)', token, re.I)
+    if m:
+        return round(float(m.group(1)) * 2.54, 2), round(float(m.group(2)) * 2.54, 2)
+
+    # 10 cm (single dimension in cm)
+    m = re.search(r'([\d.]+)\s*cm', token, re.I)
+    if m:
+        return None, float(m.group(1))
+
+    # 10 in or 10" (single dimension in in)
+    m = re.search(r'([\d.]+)\s*(?:in|\"|\'\')', token, re.I)
     if m:
         return None, round(float(m.group(1)) * 2.54, 2)
-    m = DIM_PATTERN_BARE.match(token)
+
+    # bare number
+    m = re.match(r'^([\d.]+)$', token)
     if m:
         return None, round(float(m.group(1)) * 2.54, 2)
+
     return None, None
 
 
@@ -63,7 +80,6 @@ def extract_page_blocks(page):
     blocks = []  # (sku, [dims])
     current_sku = None
     current_dims = []
-    dim_token_re = re.compile(r'^[\d.]+\s*(cm\s*[xX]\s*[\d.]+\s*cm|[xX]\s*[\d.]+\s*in|in)?$', re.I)
 
     for line in lines:
         sku_match = SKU_PATTERN.fullmatch(line)
@@ -74,8 +90,8 @@ def extract_page_blocks(page):
             current_dims = []
         else:
             # collect anything that looks like a dimension token
-            if current_sku and re.search(r'\d', line) and ('cm' in line.lower() or 'in' in line.lower() or re.fullmatch(r'[\d.]+', line)):
-                if line.lower() not in ('size', 'total size', 'a', 'b', 'c'):
+            if current_sku and re.search(r'\d', line) and ('cm' in line.lower() or 'in' in line.lower() or '"' in line or re.search(r'\d+\s*[xX*×]\s*\d+', line) or re.fullmatch(r'[\d.]+', line)):
+                if line.lower() not in ('size', 'total size', 'a', 'b', 'c', 'd', 'e'):
                     current_dims.append(line)
     if current_sku:
         blocks.append((current_sku, current_dims))
@@ -84,8 +100,11 @@ def extract_page_blocks(page):
 
 
 def extract_images_in_order(page):
-    infos = page.get_image_info(xrefs=True)
-    product_imgs = [im for im in infos if im["width"] >= 100 and im["height"] >= 100]
+    try:
+        infos = page.get_image_info(xrefs=True)
+    except Exception:
+        return []
+    product_imgs = [im for im in infos if im.get("width", 0) >= 100 and im.get("height", 0) >= 100 and im.get("bbox")]
     product_imgs.sort(key=lambda im: (round(im["bbox"][1] / 50), im["bbox"][0]))
     return product_imgs
 
@@ -125,7 +144,6 @@ def process_catalogue(pdf_path, output_dir, sku_prefix_hint=None, progress_cb=No
 
         for i, (sku, dim_tokens) in enumerate(blocks):
             if sku_prefix_hint and not sku.startswith(sku_prefix_hint):
-                # still record it, just don't skip - prefix hint is informational only
                 pass
 
             if sku not in products:
@@ -153,22 +171,24 @@ def process_catalogue(pdf_path, output_dir, sku_prefix_hint=None, progress_cb=No
                 products[sku]["status"] = "active"
 
             # extract matching photo by position if available
-            if i < len(images) and sku not in [p for p in photo_report if p[1] == "extracted"]:
-                xref = images[i]["xref"]
-                try:
-                    base = doc.extract_image(xref)
-                    data = base["image"]
-                    ext = base["ext"]
-                    if len(data) >= 3000:
-                        fname = os.path.join(photos_dir, f"{sku}.{ext}")
-                        with open(fname, "wb") as f:
-                            f.write(data)
-                        products[sku]["has_photo"] = True
-                        photo_report.append((sku, "extracted", fname))
-                    else:
-                        photo_report.append((sku, "skipped_tiny", len(data)))
-                except Exception as e:
-                    photo_report.append((sku, "error", str(e)))
+            extracted_skus = {p[0] for p in photo_report if p[1] == "extracted"}
+            if i < len(images) and sku not in extracted_skus:
+                xref = images[i].get("xref")
+                if xref:
+                    try:
+                        base = doc.extract_image(xref)
+                        data = base["image"]
+                        ext = base["ext"]
+                        if len(data) >= 3000:
+                            fname = os.path.join(photos_dir, f"{sku}.{ext}")
+                            with open(fname, "wb") as f:
+                                f.write(data)
+                            products[sku]["has_photo"] = True
+                            photo_report.append((sku, "extracted", fname))
+                        else:
+                            photo_report.append((sku, "skipped_tiny", len(data)))
+                    except Exception as e:
+                        photo_report.append((sku, "error", str(e)))
 
     # ---- write outputs ----
     ordered_skus = seen_order
@@ -227,7 +247,8 @@ def process_catalogue(pdf_path, output_dir, sku_prefix_hint=None, progress_cb=No
     if ordered_skus:
         sql_lines.append("insert into products (sku, name, status, has_photo) values")
         rows = [f"({esc(products[s]['sku'])}, {esc(products[s]['name'])}, {esc(products[s]['status'])}, {str(products[s]['has_photo']).lower()})" for s in ordered_skus]
-        sql_lines.append(",\n".join(rows) + ";")
+        sql_lines.append(",\n".join(rows))
+        sql_lines.append("on conflict (sku) do update set name = excluded.name, status = excluded.status, has_photo = excluded.has_photo;")
 
         vrows = []
         for s in ordered_skus:
@@ -243,14 +264,17 @@ def process_catalogue(pdf_path, output_dir, sku_prefix_hint=None, progress_cb=No
             sql_lines.append("join products p on p.sku = v.sku;")
 
     import_sql = os.path.join(output_dir, "import.sql")
-    with open(import_sql, "w") as f:
+    with open(import_sql, "w", encoding="utf-8") as f:
         f.write("\n".join(sql_lines))
 
     # zip photos
     photos_zip = os.path.join(output_dir, "photos.zip")
     with zipfile.ZipFile(photos_zip, "w", zipfile.ZIP_DEFLATED) as zf:
-        for fname in os.listdir(photos_dir):
-            zf.write(os.path.join(photos_dir, fname), arcname=f"photos/{fname}")
+        if os.path.exists(photos_dir):
+            for fname in os.listdir(photos_dir):
+                fpath = os.path.join(photos_dir, fname)
+                if os.path.isfile(fpath):
+                    zf.write(fpath, arcname=f"photos/{fname}")
 
     # summary stats
     total = len(ordered_skus)
@@ -268,7 +292,7 @@ def process_catalogue(pdf_path, output_dir, sku_prefix_hint=None, progress_cb=No
         "missing_photo_skus": [s for s in ordered_skus if not products[s]["has_photo"]],
         "coming_soon_skus": [s for s in ordered_skus if products[s]["status"] != "active"],
     }
-    with open(os.path.join(output_dir, "summary.json"), "w") as f:
+    with open(os.path.join(output_dir, "summary.json"), "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
 
     if progress_cb:

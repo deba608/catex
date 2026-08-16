@@ -1,65 +1,74 @@
 # Catalogue Importer
 
-A small local web app: drag in a product catalogue PDF, get back a clean
-product list, size list, database import file, and all product photos —
-ready to load into a website.
+A fast local tool (available as both a **Web App** and a **Native Desktop App**): drop in a product catalogue PDF, get back a clean product list, size list, database import SQL, and all product photos — ready to load into an e-commerce website.
 
-Built for catalogues shaped like Kanha Brothers' — a product code (e.g. `KB1`),
-a photo, and a size table per item, repeated across pages. It should work on
-any similarly-structured catalogue, not just this one.
+Built for catalogues shaped like Kanha Brothers' — a product code (e.g. `KB1`), a photo, and a size table per item, repeated across pages. It works on any similarly-structured catalogue.
 
-## How to run it
+---
 
-You need Python 3 installed. Then:
+## Quick Start
 
-1. Open a terminal in this folder
-2. Run:
+### Prerequisites
+- Python 3.9+ installed
+
+### Installation
+```bash
+git clone https://github.com/deba608/catex.git
+cd catex
+pip install -r requirements.txt
+```
+
+---
+
+## How to Run
+
+### Option A: Local Web App (Recommended for Browser)
+1. Run the web server:
+   ```bash
+   python app.py
    ```
-   ./run.sh
-   ```
-   (On Windows, run `pip install -r requirements.txt` then `python app.py` instead)
-3. Open **http://localhost:5000** in your browser
-4. Drag your catalogue PDF onto the page
-5. Wait for it to finish (usually a few seconds per 10 pages)
-6. Download the files you need
+   *(or run `./run.sh` on Linux/macOS)*
+2. Open **[http://localhost:5000](http://localhost:5000)** in your browser.
+3. Drag & drop your catalogue PDF onto the upload zone (or click to browse).
+4. Watch real-time extraction progress and download your files when complete.
 
-Leave the terminal window open while using the app — closing it stops the app.
+### Option B: Native Desktop App (CustomTkinter GUI)
+If you prefer a standalone desktop window without a web browser:
+```bash
+python desktop_app.py
+```
 
-## What you get
+---
 
-| File | What it's for |
-|---|---|
-| **Product list** (`products.csv`) | Every product code found, whether it has a photo, how many sizes it has. Open in Excel. |
-| **Sizes list** (`variants.csv`) | Every size option per product, converted to centimetres. |
-| **Full data file** (`products.json`) | Same information, structured for a developer to load into the website. |
-| **Website database file** (`import.sql`) | Ready to paste into the website's database (Supabase SQL editor) to load everything in one go. |
-| **All photos** (`photos.zip`) | Every product photo the tool found in the PDF, automatically named by product code (e.g. `KB1.jpg`). |
+## What You Get
 
-## What it flags for you
+| File | Format | Description |
+|---|---|---|
+| **Product list** | `products.csv` | Every product code found, photo availability, and variant count (ready for Excel/Google Sheets). |
+| **Sizes list** | `variants.csv` | Every size option per product, converted to centimetres (W × H). |
+| **Full data file** | `products.json` | Structured JSON with nested variants and metadata for developers. |
+| **Website database file** | `import.sql` | Production-ready PostgreSQL / Supabase SQL script with idempotent `ON CONFLICT` upserts. |
+| **All photos** | `photos.zip` | Extracted product photos automatically named by SKU (e.g. `KB1.jpg`). |
+| **Summary** | `summary.json` | Statistical overview including total products, photos extracted, and missing photo counts. |
 
-After processing, the app shows how many products are **missing a photo** —
-these are products where a size/price table exists in the catalogue but no
-photo was included. Those need a real photo taken before the product can go
-live on the website. The product codes are listed right on the results page.
+---
 
-## Limits — what this tool can't do
+## Smart Features & Error Handling
 
-- **It only extracts what's already in the PDF.** If a product has no photo
-  in the catalogue (shown as "Coming Soon" pages), there's nothing to extract —
-  someone needs to take that photo.
-- **No pricing.** Catalogues like this typically don't include prices, so
-  none is generated. Add pricing separately (the database file has an empty
-  `price` column ready for it).
-- **Best with one catalogue category at a time.** If you have separate PDFs
-  for trophies, stationery, printing, etc., run each through separately —
-  don't combine them into one PDF first.
-- **Reads product codes matching a pattern like `KB12`, `CP1598`, `SKU-004`**
-  (letters followed by numbers). If your catalogue labels products very
-  differently, it may not detect them — ask your developer to check.
+- **Missing Photo Detection**: Flags products that have size specifications in the catalogue but lack a photo (e.g., placeholder or "Coming Soon" listings), providing an exact list of SKUs that need photography.
+- **Flexible Dimension Parsing**: Recognizes `cm` (e.g., `10cm x 15cm`), inches (e.g., `10 x 15 in`, `8"`), and bare dimension pairs automatically converting all sizes to centimetres.
+- **Robust Upload & Processing Pipeline**: Prevents browser navigation hijacks on drag-and-drop, handles transient polling retries gracefully, and avoids UI lockups or unexpected page resets.
 
-## Running this on another computer
+---
 
-Copy this whole folder (including `app.py`, `catalogue_extractor.py`, the
-`templates` folder, `requirements.txt`, and `run.sh`) to the other machine,
-then follow "How to run it" above. No internet connection is needed once
-Python and the two dependencies (Flask, PyMuPDF) are installed.
+## Limitations
+
+- **Image Extraction**: Only extracts photos embedded in the PDF itself. Scanned non-OCR PDFs or missing catalogue photos cannot be auto-generated.
+- **SKU Formats**: Matches alphanumeric SKU formats like `KB12`, `CP1598`, `SKU-004`.
+- **Pricing**: Catalogues usually omit dynamic wholesale/retail pricing; the generated `import.sql` includes an empty `price` column ready for manual or bulk updates.
+
+---
+
+## License
+
+MIT License.
