@@ -299,6 +299,8 @@ class CatalogueApp(ctk.CTk):
     # ---------- results UI ----------
 
     def _on_done(self, result):
+        self._show_state("results")
+        
         # clear old
         for child in self.results_frame.winfo_children():
             child.destroy()
